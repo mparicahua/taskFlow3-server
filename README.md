@@ -14,7 +14,7 @@ PORT=3000
 
 DATABASE_URL="mysql://root:password@localhost:3306/taskflow3_db"
 ```
-
+### Trabajar con prisma ORM
 
 ```sh
 npx prisma generate
@@ -24,6 +24,7 @@ npx prisma generate
 npx prisma studio
 ```
 
+### Ejecutar
 ```sh
 npm run dev
 ```
