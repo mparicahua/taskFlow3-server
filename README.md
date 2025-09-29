@@ -9,15 +9,19 @@ npm install
 
 ### Configurar variables de entorno  
 Crea un archivo `.env` en la raíz del proyecto con el siguiente contenido:
-
+```sh
 PORT=3000
 
 DATABASE_URL="mysql://root:password@localhost:3306/taskflow3_db"
-
+```
 
 
 ```sh
 npx prisma generate
+```
+
+```sh
+npx prisma studio
 ```
 
 ```sh
