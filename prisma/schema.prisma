@@ -1,0 +1,158 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+// Modelo de Usuarios
+model usuarios {
+  id                    Int                     @id @default(autoincrement())
+  nombre                String                  @db.VarChar(100)
+  email                 String                  @unique @db.VarChar(150)
+  password_hash         String                  @db.VarChar(255)
+  iniciales             String?                 @db.VarChar(3)
+  color_avatar          String                  @default("#3B82F6") @db.VarChar(7)
+  fecha_creacion        DateTime                @default(now()) @db.DateTime(0)
+  activo                Boolean                 @default(true)
+  
+  // Relaciones
+  tareas_asignadas      tareas[]                @relation("AsignadoA")
+  proyecto_usuario_rol  proyecto_usuario_rol[]
+
+  @@index([email], map: "idx_email")
+  @@index([activo], map: "idx_activo")
+}
+
+// Modelo de Proyectos
+model proyectos {
+  id                    Int                     @id @default(autoincrement())
+  nombre                String                  @db.VarChar(100)
+  descripcion           String?                 @db.Text
+  es_colaborativo       Boolean                 @default(true)
+  progreso_porcentaje   Int                     @default(0)
+  fecha_creacion        DateTime                @default(now()) @db.DateTime(0)
+  activo                Boolean                 @default(true) @db.TinyInt
+  
+  // Relaciones
+  listas                listas[]
+  proyecto_usuario_rol  proyecto_usuario_rol[]
+
+  @@index([nombre], map: "idx_nombre")
+  @@index([activo], map: "idx_activo")
+}
+
+// Modelo de Roles
+model roles {
+  id                    Int                     @id @default(autoincrement())
+  nombre                String                  @unique @db.VarChar(50)
+  descripcion           String?                 @db.VarChar(200)
+  
+  // Relaciones
+  proyecto_usuario_rol  proyecto_usuario_rol[]
+
+  @@index([nombre], map: "idx_nombre")
+}
+
+// Modelo de relación Proyecto-Usuario-Rol
+model proyecto_usuario_rol {
+  id                Int       @id @default(autoincrement())
+  proyecto_id       Int
+  usuario_id        Int
+  rol_id            Int
+  fecha_asignacion  DateTime  @default(now()) @db.DateTime(0)
+  
+  // Relaciones
+  proyecto          proyectos @relation(fields: [proyecto_id], references: [id], onDelete: Cascade)
+  usuario           usuarios  @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
+  rol               roles     @relation(fields: [rol_id], references: [id], onDelete: Restrict)
+
+  @@unique([proyecto_id, usuario_id], map: "unique_proyecto_usuario")
+  @@index([proyecto_id], map: "idx_proyecto")
+  @@index([usuario_id], map: "idx_usuario")
+  @@index([rol_id], map: "idx_rol")
+}
+
+// Modelo de Listas
+model listas {
+  id          Int       @id @default(autoincrement())
+  proyecto_id Int
+  nombre      String    @db.VarChar(100)
+  orden       Int       @default(0)
+  activa      Boolean   @default(true)
+  
+  // Relaciones
+  proyecto    proyectos @relation(fields: [proyecto_id], references: [id], onDelete: Cascade)
+  tareas      tareas[]
+
+  @@index([proyecto_id], map: "idx_proyecto")
+  @@index([orden], map: "idx_orden")
+  @@index([activa], map: "idx_activa")
+}
+
+// Modelo de Etiquetas
+model etiquetas {
+  id              Int               @id @default(autoincrement())
+  nombre          String            @unique @db.VarChar(50)
+  color           String            @default("#6B7280") @db.VarChar(7)
+  
+  // Relaciones
+  tarea_etiqueta  tarea_etiqueta[]
+
+  @@index([nombre], map: "idx_nombre")
+}
+
+// Modelo de Tareas
+model tareas {
+  id                  Int               @id @default(autoincrement())
+  lista_id            Int
+  titulo              String            @db.VarChar(150)
+  descripcion         String?           @db.Text
+  orden               Int               @default(0)
+  completada          Boolean           @default(false)
+  prioridad           prioridad_enum    @default(Media)
+  fecha_creacion      DateTime          @default(now()) @db.DateTime(0)
+  fecha_vencimiento   DateTime?         @db.Date
+  asignado_a          Int?
+  
+  // Relaciones
+  lista               listas            @relation(fields: [lista_id], references: [id], onDelete: Cascade)
+  usuario             usuarios?         @relation("AsignadoA", fields: [asignado_a], references: [id], onDelete: SetNull)
+  tarea_etiqueta      tarea_etiqueta[]
+
+  @@index([lista_id], map: "idx_lista")
+  @@index([orden], map: "idx_orden")
+  @@index([completada], map: "idx_completada")
+  @@index([prioridad], map: "idx_prioridad")
+  @@index([fecha_vencimiento], map: "idx_fecha_vencimiento")
+  @@index([asignado_a], map: "idx_asignado")
+}
+
+// Modelo de relación Tarea-Etiqueta
+model tarea_etiqueta {
+  id           Int        @id @default(autoincrement())
+  tarea_id     Int
+  etiqueta_id  Int
+  
+  // Relaciones
+  tarea        tareas     @relation(fields: [tarea_id], references: [id], onDelete: Cascade)
+  etiqueta     etiquetas  @relation(fields: [etiqueta_id], references: [id], onDelete: Cascade)
+
+  @@unique([tarea_id, etiqueta_id], map: "unique_tarea_etiqueta")
+  @@index([tarea_id], map: "idx_tarea")
+  @@index([etiqueta_id], map: "idx_etiqueta")
+}
+
+// Enum para prioridad
+enum prioridad_enum {
+  Baja
+  Media
+  Alta
+}
