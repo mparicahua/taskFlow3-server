@@ -3,7 +3,7 @@ const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-// GET - Listar proyectos del usuario
+
 router.get('/user/:userId', async (req, res) => {
   try {
     const userId = parseInt(req.params.userId);
@@ -15,7 +15,7 @@ router.get('/user/:userId', async (req, res) => {
       });
     }
 
-    // Obtener solo los proyectos donde el usuario está asignado
+
     const proyectosUsuario = await prisma.proyecto_usuario_rol.findMany({
       where: {
         usuario_id: userId
@@ -62,9 +62,9 @@ router.get('/user/:userId', async (req, res) => {
       }
     });
 
-    // Extraer solo los proyectos y agregar el rol del usuario actual
+
     const proyectos = proyectosUsuario
-      .filter(pu => pu.proyecto.activo) // Solo proyectos activos
+      .filter(pu => pu.proyecto.activo) 
       .map(pu => ({
         ...pu.proyecto,
         rol_usuario_actual: pu.rol.nombre
@@ -86,7 +86,6 @@ router.get('/user/:userId', async (req, res) => {
   }
 });
 
-// GET - Listar todos los proyectos (endpoint original - opcional)
 router.get('/', async (req, res) => {
   try {
     const proyectos = await prisma.proyectos.findMany({
@@ -140,7 +139,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST - Crear un nuevo proyecto
+
 router.post('/', async (req, res) => {
   try {
     const { nombre, descripcion, es_colaborativo, usuario_id } = req.body;
@@ -160,7 +159,6 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Verificar que el usuario exista
     const usuario = await prisma.usuarios.findUnique({
       where: { id: usuario_id }
     });
@@ -172,7 +170,7 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Buscar el rol de "Propietario"
+
     const rolPropietario = await prisma.roles.findFirst({
       where: { nombre: 'Propietario' }
     });
@@ -184,9 +182,9 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Crear el proyecto con transacción
+
     const nuevoProyecto = await prisma.$transaction(async (tx) => {
-      // 1. Crear el proyecto
+
       const proyecto = await tx.proyectos.create({
         data: {
           nombre: nombre.trim(),
@@ -197,7 +195,6 @@ router.post('/', async (req, res) => {
         }
       });
 
-      // 2. Asignar el usuario como propietario del proyecto
       await tx.proyecto_usuario_rol.create({
         data: {
           proyecto_id: proyecto.id,
@@ -206,7 +203,6 @@ router.post('/', async (req, res) => {
         }
       });
 
-      // 3. Retornar el proyecto con sus relaciones
       return await tx.proyectos.findUnique({
         where: { id: proyecto.id },
         select: {
@@ -254,7 +250,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PUT - Actualizar un proyecto
+
 router.put('/:id', async (req, res) => {
   try {
     const proyectoId = parseInt(req.params.id);
@@ -284,7 +280,7 @@ router.put('/:id', async (req, res) => {
       });
     }
 
-    // Verificar que el usuario tiene permisos (es Propietario o Administrador)
+
     const rolUsuario = proyectoExistente.proyecto_usuario_rol[0];
     if (!rolUsuario) {
       return res.status(403).json({
@@ -345,7 +341,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// DELETE - Eliminar (desactivar) un proyecto
+
 router.delete('/:id', async (req, res) => {
   try {
     const proyectoId = parseInt(req.params.id);
@@ -358,7 +354,6 @@ router.delete('/:id', async (req, res) => {
       });
     }
 
-    // Verificar que el proyecto existe
     const proyectoExistente = await prisma.proyectos.findUnique({
       where: { id: proyectoId },
       include: {
@@ -408,7 +403,6 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// POST - Agregar miembro a un proyecto
 router.post('/:id/miembros', async (req, res) => {
   try {
     const proyectoId = parseInt(req.params.id);
@@ -421,7 +415,7 @@ router.post('/:id/miembros', async (req, res) => {
       });
     }
 
-    // Verificar que el proyecto existe
+
     const proyecto = await prisma.proyectos.findUnique({
       where: { id: proyectoId }
     });
@@ -433,7 +427,7 @@ router.post('/:id/miembros', async (req, res) => {
       });
     }
 
-    // Verificar que el usuario existe
+
     const usuario = await prisma.usuarios.findUnique({
       where: { id: usuario_id }
     });
@@ -445,7 +439,6 @@ router.post('/:id/miembros', async (req, res) => {
       });
     }
 
-    // Verificar que no esté ya asignado
     const yaAsignado = await prisma.proyecto_usuario_rol.findFirst({
       where: {
         proyecto_id: proyectoId,
@@ -460,7 +453,6 @@ router.post('/:id/miembros', async (req, res) => {
       });
     }
 
-    // Asignar usuario al proyecto
     const asignacion = await prisma.proyecto_usuario_rol.create({
       data: {
         proyecto_id: proyectoId,
@@ -500,13 +492,12 @@ router.post('/:id/miembros', async (req, res) => {
   }
 });
 
-// DELETE - Eliminar miembro de un proyecto
+
 router.delete('/:proyectoId/miembros/:usuarioId', async (req, res) => {
   try {
     const proyectoId = parseInt(req.params.proyectoId);
     const usuarioId = parseInt(req.params.usuarioId);
 
-    // Verificar que existe la asignación
     const asignacion = await prisma.proyecto_usuario_rol.findFirst({
       where: {
         proyecto_id: proyectoId,
@@ -524,7 +515,7 @@ router.delete('/:proyectoId/miembros/:usuarioId', async (req, res) => {
       });
     }
 
-    // No permitir eliminar al propietario
+
     if (asignacion.rol.nombre === 'Propietario') {
       return res.status(403).json({
         success: false,
@@ -532,7 +523,7 @@ router.delete('/:proyectoId/miembros/:usuarioId', async (req, res) => {
       });
     }
 
-    // Eliminar la asignación
+
     await prisma.proyecto_usuario_rol.delete({
       where: {
         id: asignacion.id
@@ -554,7 +545,6 @@ router.delete('/:proyectoId/miembros/:usuarioId', async (req, res) => {
   }
 });
 
-// DELETE - Eliminar todos los miembros excepto propietario (al desactivar colaborativo)
 router.delete('/:proyectoId/miembros', async (req, res) => {
   try {
     const proyectoId = parseInt(req.params.proyectoId);
@@ -583,7 +573,6 @@ router.delete('/:proyectoId/miembros', async (req, res) => {
       });
     }
 
-    // Eliminar todos los miembros excepto los propietarios
     const resultado = await prisma.proyecto_usuario_rol.deleteMany({
       where: {
         proyecto_id: proyectoId,
