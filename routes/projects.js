@@ -549,7 +549,6 @@ router.delete('/:proyectoId/miembros', async (req, res) => {
   try {
     const proyectoId = parseInt(req.params.proyectoId);
 
-    // Verificar que el proyecto existe
     const proyecto = await prisma.proyectos.findUnique({
       where: { id: proyectoId }
     });
@@ -561,7 +560,7 @@ router.delete('/:proyectoId/miembros', async (req, res) => {
       });
     }
 
-    // Obtener el rol de Propietario
+
     const rolPropietario = await prisma.roles.findFirst({
       where: { nombre: 'Propietario' }
     });

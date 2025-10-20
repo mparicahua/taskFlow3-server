@@ -3,7 +3,6 @@ const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-// GET - Listar todos los usuarios activos
 router.get('/', async (req, res) => {
   try {
     const usuarios = await prisma.usuarios.findMany({
@@ -38,12 +37,10 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET - Listar usuarios disponibles para un proyecto (excluye los ya asignados)
 router.get('/disponibles/:proyectoId', async (req, res) => {
   try {
     const proyectoId = parseInt(req.params.proyectoId);
 
-    // Obtener IDs de usuarios ya asignados al proyecto
     const usuariosAsignados = await prisma.proyecto_usuario_rol.findMany({
       where: {
         proyecto_id: proyectoId
@@ -55,7 +52,6 @@ router.get('/disponibles/:proyectoId', async (req, res) => {
 
     const idsAsignados = usuariosAsignados.map(u => u.usuario_id);
 
-    // Obtener usuarios que NO están asignados
     const usuariosDisponibles = await prisma.usuarios.findMany({
       where: {
         activo: true,
@@ -91,7 +87,7 @@ router.get('/disponibles/:proyectoId', async (req, res) => {
   }
 });
 
-// GET - Listar roles disponibles
+
 router.get('/roles', async (req, res) => {
   try {
     const roles = await prisma.roles.findMany({
