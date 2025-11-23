@@ -13,30 +13,64 @@ const tagRoutes = require('./routes/tags');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middlewares
+// ==================== VERIFICACIÓN DE VARIABLES DE ENTORNO ====================
+const requiredEnvVars = [
+  'DATABASE_URL',
+  'JWT_ACCESS_SECRET',
+  'JWT_REFRESH_SECRET'
+];
+
+const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+if (missingEnvVars.length > 0) {
+  console.error('❌ ERROR: Variables de entorno faltantes:');
+  missingEnvVars.forEach(varName => {
+    console.error(`   - ${varName}`);
+  });
+  console.error('\nPor favor, configura las variables de entorno en el archivo .env');
+  process.exit(1);
+}
+
+// ==================== MIDDLEWARES GLOBALES ====================
 app.use(cors()); 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true })); 
 
 // Middleware de logging
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  const timestamp = new Date().toISOString();
+  const method = req.method;
+  const path = req.path;
+  const hasAuth = req.headers.authorization ? '🔐' : '🔓';
+  
+  console.log(`${timestamp} ${hasAuth} ${method} ${path}`);
   next();
 });
+
+// ==================== RUTAS PÚBLICAS ====================
 
 // Ruta raíz
 app.get('/', (req, res) => {
   res.json({
-    message: 'TaskFlow3 API',
-    version: '2.0',
+    name: 'TaskFlow3 API',
+    version: '2.0 (JWT)',
     timestamp: new Date().toISOString(),
+    authentication: 'JWT Bearer Token',
     endpoints: {
-      auth: '/api/auth',
-      projects: '/api/projects',
-      users: '/api/users',
-      lists: '/api/lists',
-      tasks: '/api/tasks',
-      tags: '/api/tags'
+      public: {
+        auth: '/api/auth (POST /login, POST /register, POST /refresh)'
+      },
+      protected: {
+        projects: '/api/projects',
+        users: '/api/users',
+        lists: '/api/lists',
+        tasks: '/api/tasks',
+        tags: '/api/tags'
+      }
+    },
+    documentation: {
+      authentication: 'Include "Authorization: Bearer <token>" header for protected routes',
+      tokenRefresh: 'Use POST /api/auth/refresh with refreshToken to get new accessToken'
     }
   });
 });
@@ -46,51 +80,110 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'OK',
     uptime: process.uptime(),
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    environment: {
+      nodeVersion: process.version,
+      port: PORT,
+      jwtConfigured: !!(process.env.JWT_ACCESS_SECRET && process.env.JWT_REFRESH_SECRET)
+    }
   });
 });
 
-// Rutas de la API
+// ==================== RUTAS DE LA API ====================
+
+// Rutas de autenticación (públicas)
 app.use('/api/auth', authRoutes);
+
+// Rutas protegidas (requieren JWT)
 app.use('/api/projects', projectRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/lists', listRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/tags', tagRoutes);
 
+// ==================== MANEJADORES DE ERRORES ====================
+
 // Manejador 404
 app.use((req, res) => {
   res.status(404).json({
+    success: false,
     error: 'Ruta no encontrada',
     path: req.originalUrl,
-    method: req.method
+    method: req.method,
+    message: 'La ruta solicitada no existe en esta API'
   });
 });
 
 // Manejador de errores global
 app.use((err, req, res, next) => {
-  console.error('Error:', err.stack);
-  res.status(500).json({
+  console.error('❌ Error no manejado:', err.stack);
+  
+  res.status(err.status || 500).json({
+    success: false,
     error: 'Error interno del servidor',
-    message: err.message
+    message: process.env.NODE_ENV === 'production' 
+      ? 'Ocurrió un error en el servidor' 
+      : err.message,
+    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
   });
 });
 
-// Iniciar servidor
-app.listen(PORT, () => {
+// ==================== INICIAR SERVIDOR ====================
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`
-╔══════════════════════════════════════╗
-║   TaskFlow3 Backend Server          ║
-║   Puerto: ${PORT}                       ║
-║   Estado: ✓ Activo                  ║
-╚══════════════════════════════════════╝
+╔══════════════════════════════════════════════════════╗
+║         🚀 TaskFlow3 Backend Server (JWT)          ║
+╠══════════════════════════════════════════════════════╣
+║  Puerto:          ${PORT.toString().padEnd(35)} ║
+║  Estado:          ✓ Activo                         ║
+║  Autenticación:   JWT Bearer Token                 ║
+║  Access Token:    ${process.env.JWT_ACCESS_EXPIRATION || '15m'}                                ║
+║  Refresh Token:   ${process.env.JWT_REFRESH_EXPIRATION || '7d'}                                 ║
+╚══════════════════════════════════════════════════════╝
   `);
-  console.log(`📡 API disponible en: http://localhost:${PORT}`);
-  console.log(`📋 Endpoints:`);
-  console.log(`   - Auth:     /api/auth`);
-  console.log(`   - Projects: /api/projects`);
-  console.log(`   - Lists:    /api/lists`);
-  console.log(`   - Tasks:    /api/tasks`);
-  console.log(`   - Tags:     /api/tags`);
-  console.log(`   - Users:    /api/users\n`);
+  
+  console.log(`📡 API URL: http://localhost:${PORT}`);
+  console.log(`📋 Endpoints disponibles:`);
+  console.log(`   
+   🔓 PÚBLICOS:
+      POST   /api/auth/login          - Iniciar sesión
+      POST   /api/auth/register       - Registrar usuario
+      POST   /api/auth/refresh        - Renovar access token
+   
+   🔐 PROTEGIDOS (requieren token):
+      GET    /api/auth/verify         - Verificar token
+      POST   /api/auth/logout         - Cerrar sesión
+      POST   /api/auth/logout-all     - Cerrar todas las sesiones
+      
+      GET    /api/projects            - Listar proyectos
+      POST   /api/projects            - Crear proyecto
+      PUT    /api/projects/:id        - Actualizar proyecto
+      DELETE /api/projects/:id        - Eliminar proyecto
+      
+      GET    /api/users               - Listar usuarios
+      GET    /api/users/roles         - Listar roles
+      
+      GET    /api/lists/project/:id   - Listas de un proyecto
+      POST   /api/lists               - Crear lista
+      
+      GET    /api/tasks/list/:id      - Tareas de una lista
+      POST   /api/tasks               - Crear tarea
+      PUT    /api/tasks/:id           - Actualizar tarea
+      PUT    /api/tasks/:id/move      - Mover tarea (drag&drop)
+      
+      GET    /api/tags                - Listar etiquetas
+  `);
+  
+  console.log(`\n💡 Tip: Usa "Authorization: Bearer <token>" en los headers\n`);
+});
+
+// ==================== MANEJO DE SEÑALES DE TERMINACIÓN ====================
+process.on('SIGTERM', () => {
+  console.log('\n⚠️  SIGTERM recibido, cerrando servidor...');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('\n⚠️  SIGINT recibido, cerrando servidor...');
+  process.exit(0);
 });

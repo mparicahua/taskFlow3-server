@@ -2,9 +2,10 @@ const express = require('express');
 const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const { authenticateToken } = require('../middleware/authMiddleware');
 
 // ==================== OBTENER TODAS LAS ETIQUETAS ====================
-router.get('/', async (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const etiquetas = await prisma.etiquetas.findMany({
       orderBy: {

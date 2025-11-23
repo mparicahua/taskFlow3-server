@@ -2,19 +2,20 @@ const express = require('express');
 const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const { authenticateToken } = require('../middleware/authMiddleware');
 
-
-router.get('/user/:userId', async (req, res) => {
+// ==================== OBTENER PROYECTOS DEL USUARIO AUTENTICADO ====================
+router.get('/user/:userId', authenticateToken, async (req, res) => {
   try {
     const userId = parseInt(req.params.userId);
 
-    if (!userId) {
-      return res.status(400).json({
+    // Verificar que el usuario solicita sus propios proyectos
+    if (userId !== req.user.id) {
+      return res.status(403).json({
         success: false,
-        message: 'ID de usuario requerido'
+        message: 'No tienes permiso para ver estos proyectos'
       });
     }
-
 
     const proyectosUsuario = await prisma.proyecto_usuario_rol.findMany({
       where: {
@@ -62,9 +63,8 @@ router.get('/user/:userId', async (req, res) => {
       }
     });
 
-
     const proyectos = proyectosUsuario
-      .filter(pu => pu.proyecto.activo) 
+      .filter(pu => pu.proyecto.activo)
       .map(pu => ({
         ...pu.proyecto,
         rol_usuario_actual: pu.rol.nombre
@@ -86,7 +86,8 @@ router.get('/user/:userId', async (req, res) => {
   }
 });
 
-router.get('/', async (req, res) => {
+// ==================== OBTENER TODOS LOS PROYECTOS (ADMIN) ====================
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const proyectos = await prisma.proyectos.findMany({
       where: {
@@ -139,10 +140,11 @@ router.get('/', async (req, res) => {
   }
 });
 
-
-router.post('/', async (req, res) => {
+// ==================== CREAR PROYECTO ====================
+router.post('/', authenticateToken, async (req, res) => {
   try {
-    const { nombre, descripcion, es_colaborativo, usuario_id } = req.body;
+    const { nombre, descripcion, es_colaborativo } = req.body;
+    const usuario_id = req.user.id; // Del token JWT
 
     // Validaciones
     if (!nombre) {
@@ -151,25 +153,6 @@ router.post('/', async (req, res) => {
         message: 'El nombre del proyecto es requerido'
       });
     }
-
-    if (!usuario_id) {
-      return res.status(400).json({
-        success: false,
-        message: 'El ID del usuario es requerido'
-      });
-    }
-
-    const usuario = await prisma.usuarios.findUnique({
-      where: { id: usuario_id }
-    });
-
-    if (!usuario) {
-      return res.status(404).json({
-        success: false,
-        message: 'Usuario no encontrado'
-      });
-    }
-
 
     const rolPropietario = await prisma.roles.findFirst({
       where: { nombre: 'Propietario' }
@@ -182,9 +165,7 @@ router.post('/', async (req, res) => {
       });
     }
 
-
     const nuevoProyecto = await prisma.$transaction(async (tx) => {
-
       const proyecto = await tx.proyectos.create({
         data: {
           nombre: nombre.trim(),
@@ -250,11 +231,12 @@ router.post('/', async (req, res) => {
   }
 });
 
-
-router.put('/:id', async (req, res) => {
+// ==================== ACTUALIZAR PROYECTO ====================
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const proyectoId = parseInt(req.params.id);
-    const { nombre, descripcion, es_colaborativo, usuario_id } = req.body;
+    const { nombre, descripcion, es_colaborativo } = req.body;
+    const usuario_id = req.user.id; // Del token JWT
 
     if (!proyectoId) {
       return res.status(400).json({
@@ -263,7 +245,6 @@ router.put('/:id', async (req, res) => {
       });
     }
 
-    // Verificar que el proyecto existe
     const proyectoExistente = await prisma.proyectos.findUnique({
       where: { id: proyectoId },
       include: {
@@ -280,7 +261,6 @@ router.put('/:id', async (req, res) => {
       });
     }
 
-
     const rolUsuario = proyectoExistente.proyecto_usuario_rol[0];
     if (!rolUsuario) {
       return res.status(403).json({
@@ -289,7 +269,6 @@ router.put('/:id', async (req, res) => {
       });
     }
 
-    // Actualizar el proyecto
     const proyectoActualizado = await prisma.proyectos.update({
       where: { id: proyectoId },
       data: {
@@ -341,11 +320,11 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-
-router.delete('/:id', async (req, res) => {
+// ==================== ELIMINAR PROYECTO ====================
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
     const proyectoId = parseInt(req.params.id);
-    const { usuario_id } = req.body;
+    const usuario_id = req.user.id; // Del token JWT
 
     if (!proyectoId) {
       return res.status(400).json({
@@ -373,7 +352,6 @@ router.delete('/:id', async (req, res) => {
       });
     }
 
-    // Verificar que el usuario es Propietario
     const rolUsuario = proyectoExistente.proyecto_usuario_rol[0];
     if (!rolUsuario || rolUsuario.rol.nombre !== 'Propietario') {
       return res.status(403).json({
@@ -382,7 +360,6 @@ router.delete('/:id', async (req, res) => {
       });
     }
 
-    // Desactivar el proyecto (soft delete)
     await prisma.proyectos.update({
       where: { id: proyectoId },
       data: { activo: false }
@@ -403,7 +380,8 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-router.post('/:id/miembros', async (req, res) => {
+// ==================== AGREGAR MIEMBRO ====================
+router.post('/:id/miembros', authenticateToken, async (req, res) => {
   try {
     const proyectoId = parseInt(req.params.id);
     const { usuario_id, rol_id } = req.body;
@@ -415,7 +393,6 @@ router.post('/:id/miembros', async (req, res) => {
       });
     }
 
-
     const proyecto = await prisma.proyectos.findUnique({
       where: { id: proyectoId }
     });
@@ -426,7 +403,6 @@ router.post('/:id/miembros', async (req, res) => {
         message: 'Proyecto no encontrado'
       });
     }
-
 
     const usuario = await prisma.usuarios.findUnique({
       where: { id: usuario_id }
@@ -492,8 +468,8 @@ router.post('/:id/miembros', async (req, res) => {
   }
 });
 
-
-router.delete('/:proyectoId/miembros/:usuarioId', async (req, res) => {
+// ==================== ELIMINAR MIEMBRO ====================
+router.delete('/:proyectoId/miembros/:usuarioId', authenticateToken, async (req, res) => {
   try {
     const proyectoId = parseInt(req.params.proyectoId);
     const usuarioId = parseInt(req.params.usuarioId);
@@ -515,14 +491,12 @@ router.delete('/:proyectoId/miembros/:usuarioId', async (req, res) => {
       });
     }
 
-
     if (asignacion.rol.nombre === 'Propietario') {
       return res.status(403).json({
         success: false,
         message: 'No se puede eliminar al propietario del proyecto'
       });
     }
-
 
     await prisma.proyecto_usuario_rol.delete({
       where: {
@@ -545,7 +519,8 @@ router.delete('/:proyectoId/miembros/:usuarioId', async (req, res) => {
   }
 });
 
-router.delete('/:proyectoId/miembros', async (req, res) => {
+// ==================== ELIMINAR TODOS LOS MIEMBROS (EXCEPTO PROPIETARIO) ====================
+router.delete('/:proyectoId/miembros', authenticateToken, async (req, res) => {
   try {
     const proyectoId = parseInt(req.params.proyectoId);
 
@@ -559,7 +534,6 @@ router.delete('/:proyectoId/miembros', async (req, res) => {
         message: 'Proyecto no encontrado'
       });
     }
-
 
     const rolPropietario = await prisma.roles.findFirst({
       where: { nombre: 'Propietario' }

@@ -2,9 +2,36 @@ const express = require('express');
 const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const { authenticateToken } = require('../middleware/authMiddleware');
+
+// ==================== FUNCIÓN AUXILIAR: VERIFICAR ACCESO A LISTA ====================
+const verificarAccesoLista = async (listaId, usuarioId) => {
+  const lista = await prisma.listas.findUnique({
+    where: { id: listaId },
+    include: {
+      proyecto: {
+        include: {
+          proyecto_usuario_rol: {
+            where: { usuario_id: usuarioId }
+          }
+        }
+      }
+    }
+  });
+
+  if (!lista) {
+    return { tieneAcceso: false, error: 'Lista no encontrada' };
+  }
+
+  if (lista.proyecto.proyecto_usuario_rol.length === 0) {
+    return { tieneAcceso: false, error: 'No tienes acceso a este proyecto' };
+  }
+
+  return { tieneAcceso: true, lista };
+};
 
 // ==================== OBTENER TODAS LAS TAREAS DE UNA LISTA ====================
-router.get('/list/:listaId', async (req, res) => {
+router.get('/list/:listaId', authenticateToken, async (req, res) => {
   try {
     const listaId = parseInt(req.params.listaId);
 
@@ -12,6 +39,14 @@ router.get('/list/:listaId', async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'ID de lista inválido'
+      });
+    }
+
+    const acceso = await verificarAccesoLista(listaId, req.user.id);
+    if (!acceso.tieneAcceso) {
+      return res.status(403).json({
+        success: false,
+        message: acceso.error
       });
     }
 
@@ -56,7 +91,7 @@ router.get('/list/:listaId', async (req, res) => {
 });
 
 // ==================== CREAR NUEVA TAREA ====================
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   try {
     const { 
       lista_id, 
@@ -68,7 +103,6 @@ router.post('/', async (req, res) => {
       orden 
     } = req.body;
 
-    // Validaciones
     if (!lista_id || !titulo) {
       return res.status(400).json({
         success: false,
@@ -90,19 +124,15 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Verificar que la lista existe
-    const lista = await prisma.listas.findUnique({
-      where: { id: lista_id }
-    });
-
-    if (!lista) {
-      return res.status(404).json({
+    // Verificar acceso
+    const acceso = await verificarAccesoLista(lista_id, req.user.id);
+    if (!acceso.tieneAcceso) {
+      return res.status(403).json({
         success: false,
-        message: 'Lista no encontrada'
+        message: acceso.error
       });
     }
 
-    // Si se asigna a alguien, verificar que el usuario existe
     if (asignado_a) {
       const usuario = await prisma.usuarios.findUnique({
         where: { id: asignado_a }
@@ -116,7 +146,6 @@ router.post('/', async (req, res) => {
       }
     }
 
-    // Si no se proporciona orden, obtener el siguiente
     let ordenFinal = orden !== undefined ? orden : 0;
     
     if (orden === undefined) {
@@ -127,11 +156,9 @@ router.post('/', async (req, res) => {
       ordenFinal = ultimaTarea ? ultimaTarea.orden + 1 : 0;
     }
 
-    // Validar prioridad
     const prioridadesValidas = ['Baja', 'Media', 'Alta'];
     const prioridadFinal = prioridad && prioridadesValidas.includes(prioridad) ? prioridad : 'Media';
 
-    // Crear la tarea
     const nuevaTarea = await prisma.tareas.create({
       data: {
         lista_id,
@@ -172,7 +199,7 @@ router.post('/', async (req, res) => {
 });
 
 // ==================== OBTENER UNA TAREA POR ID ====================
-router.get('/:id', async (req, res) => {
+router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const tareaId = parseInt(req.params.id);
 
@@ -216,6 +243,15 @@ router.get('/:id', async (req, res) => {
       });
     }
 
+    // Verificar acceso
+    const acceso = await verificarAccesoLista(tarea.lista_id, req.user.id);
+    if (!acceso.tieneAcceso) {
+      return res.status(403).json({
+        success: false,
+        message: acceso.error
+      });
+    }
+
     res.json({
       success: true,
       data: tarea
@@ -232,7 +268,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // ==================== ACTUALIZAR TAREA ====================
-router.put('/:id', async (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const tareaId = parseInt(req.params.id);
     const { 
@@ -252,7 +288,6 @@ router.put('/:id', async (req, res) => {
       });
     }
 
-    // Verificar que la tarea existe
     const tareaExistente = await prisma.tareas.findUnique({
       where: { id: tareaId }
     });
@@ -264,7 +299,15 @@ router.put('/:id', async (req, res) => {
       });
     }
 
-    // Preparar datos para actualizar
+    // Verificar acceso
+    const acceso = await verificarAccesoLista(tareaExistente.lista_id, req.user.id);
+    if (!acceso.tieneAcceso) {
+      return res.status(403).json({
+        success: false,
+        message: acceso.error
+      });
+    }
+
     const datosActualizacion = {};
     
     if (titulo !== undefined) {
@@ -293,7 +336,6 @@ router.put('/:id', async (req, res) => {
     }
     
     if (asignado_a !== undefined) {
-      // Si se asigna a alguien, verificar que el usuario existe
       if (asignado_a) {
         const usuario = await prisma.usuarios.findUnique({
           where: { id: asignado_a }
@@ -316,7 +358,6 @@ router.put('/:id', async (req, res) => {
       datosActualizacion.orden = orden;
     }
 
-    // Actualizar tarea
     const tareaActualizada = await prisma.tareas.update({
       where: { id: tareaId },
       data: datosActualizacion,
@@ -354,7 +395,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // ==================== MOVER TAREA A OTRA LISTA (DRAG & DROP) ====================
-router.put('/:id/move', async (req, res) => {
+router.put('/:id/move', authenticateToken, async (req, res) => {
   try {
     const tareaId = parseInt(req.params.id);
     const { nueva_lista_id, nuevo_orden } = req.body;
@@ -373,7 +414,6 @@ router.put('/:id/move', async (req, res) => {
       });
     }
 
-    // Verificar que la tarea existe
     const tareaExistente = await prisma.tareas.findUnique({
       where: { id: tareaId }
     });
@@ -385,19 +425,24 @@ router.put('/:id/move', async (req, res) => {
       });
     }
 
-    // Verificar que la nueva lista existe
-    const nuevaLista = await prisma.listas.findUnique({
-      where: { id: nueva_lista_id }
-    });
-
-    if (!nuevaLista) {
-      return res.status(404).json({
+    // Verificar acceso a lista origen
+    const accesoOrigen = await verificarAccesoLista(tareaExistente.lista_id, req.user.id);
+    if (!accesoOrigen.tieneAcceso) {
+      return res.status(403).json({
         success: false,
-        message: 'Lista destino no encontrada'
+        message: 'No tienes acceso a la lista origen'
       });
     }
 
-    // Mover la tarea
+    // Verificar acceso a lista destino
+    const accesoDestino = await verificarAccesoLista(nueva_lista_id, req.user.id);
+    if (!accesoDestino.tieneAcceso) {
+      return res.status(403).json({
+        success: false,
+        message: 'No tienes acceso a la lista destino'
+      });
+    }
+
     const tareaMovida = await prisma.tareas.update({
       where: { id: tareaId },
       data: {
@@ -433,9 +478,9 @@ router.put('/:id/move', async (req, res) => {
 });
 
 // ==================== REORDENAR TAREAS ====================
-router.put('/reorder/bulk', async (req, res) => {
+router.put('/reorder/bulk', authenticateToken, async (req, res) => {
   try {
-    const { tareas } = req.body; // Array de { id, lista_id, orden }
+    const { tareas } = req.body;
 
     if (!Array.isArray(tareas) || tareas.length === 0) {
       return res.status(400).json({
@@ -444,7 +489,6 @@ router.put('/reorder/bulk', async (req, res) => {
       });
     }
 
-    // Actualizar cada tarea
     const promesas = tareas.map(tarea => 
       prisma.tareas.update({
         where: { id: tarea.id },
@@ -473,7 +517,7 @@ router.put('/reorder/bulk', async (req, res) => {
 });
 
 // ==================== ELIMINAR TAREA ====================
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
     const tareaId = parseInt(req.params.id);
 
@@ -484,7 +528,6 @@ router.delete('/:id', async (req, res) => {
       });
     }
 
-    // Verificar que la tarea existe
     const tareaExistente = await prisma.tareas.findUnique({
       where: { id: tareaId }
     });
@@ -496,7 +539,15 @@ router.delete('/:id', async (req, res) => {
       });
     }
 
-    // Eliminar la tarea (esto también eliminará las etiquetas asociadas por CASCADE)
+    // Verificar acceso
+    const acceso = await verificarAccesoLista(tareaExistente.lista_id, req.user.id);
+    if (!acceso.tieneAcceso) {
+      return res.status(403).json({
+        success: false,
+        message: acceso.error
+      });
+    }
+
     await prisma.tareas.delete({
       where: { id: tareaId }
     });
@@ -517,7 +568,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // ==================== AGREGAR ETIQUETA A TAREA ====================
-router.post('/:id/etiquetas', async (req, res) => {
+router.post('/:id/etiquetas', authenticateToken, async (req, res) => {
   try {
     const tareaId = parseInt(req.params.id);
     const { etiqueta_id } = req.body;
@@ -529,7 +580,6 @@ router.post('/:id/etiquetas', async (req, res) => {
       });
     }
 
-    // Verificar que la tarea existe
     const tarea = await prisma.tareas.findUnique({
       where: { id: tareaId }
     });
@@ -541,7 +591,15 @@ router.post('/:id/etiquetas', async (req, res) => {
       });
     }
 
-    // Verificar que la etiqueta existe
+    // Verificar acceso
+    const acceso = await verificarAccesoLista(tarea.lista_id, req.user.id);
+    if (!acceso.tieneAcceso) {
+      return res.status(403).json({
+        success: false,
+        message: acceso.error
+      });
+    }
+
     const etiqueta = await prisma.etiquetas.findUnique({
       where: { id: etiqueta_id }
     });
@@ -553,7 +611,6 @@ router.post('/:id/etiquetas', async (req, res) => {
       });
     }
 
-    // Verificar si ya existe la relación
     const relacionExistente = await prisma.tarea_etiqueta.findFirst({
       where: {
         tarea_id: tareaId,
@@ -568,7 +625,6 @@ router.post('/:id/etiquetas', async (req, res) => {
       });
     }
 
-    // Crear la relación
     const tareaEtiqueta = await prisma.tarea_etiqueta.create({
       data: {
         tarea_id: tareaId,
@@ -596,7 +652,7 @@ router.post('/:id/etiquetas', async (req, res) => {
 });
 
 // ==================== ELIMINAR ETIQUETA DE TAREA ====================
-router.delete('/:id/etiquetas/:etiquetaId', async (req, res) => {
+router.delete('/:id/etiquetas/:etiquetaId', authenticateToken, async (req, res) => {
   try {
     const tareaId = parseInt(req.params.id);
     const etiquetaId = parseInt(req.params.etiquetaId);
@@ -608,7 +664,26 @@ router.delete('/:id/etiquetas/:etiquetaId', async (req, res) => {
       });
     }
 
-    // Buscar la relación
+    const tarea = await prisma.tareas.findUnique({
+      where: { id: tareaId }
+    });
+
+    if (!tarea) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tarea no encontrada'
+      });
+    }
+
+    // Verificar acceso
+    const acceso = await verificarAccesoLista(tarea.lista_id, req.user.id);
+    if (!acceso.tieneAcceso) {
+      return res.status(403).json({
+        success: false,
+        message: acceso.error
+      });
+    }
+
     const relacion = await prisma.tarea_etiqueta.findFirst({
       where: {
         tarea_id: tareaId,
@@ -623,7 +698,6 @@ router.delete('/:id/etiquetas/:etiquetaId', async (req, res) => {
       });
     }
 
-    // Eliminar la relación
     await prisma.tarea_etiqueta.delete({
       where: { id: relacion.id }
     });

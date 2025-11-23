@@ -2,8 +2,10 @@ const express = require('express');
 const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const { authenticateToken } = require('../middleware/authMiddleware');
 
-router.get('/', async (req, res) => {
+// ==================== OBTENER TODOS LOS USUARIOS ====================
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const usuarios = await prisma.usuarios.findMany({
       where: {
@@ -37,9 +39,25 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.get('/disponibles/:proyectoId', async (req, res) => {
+// ==================== OBTENER USUARIOS DISPONIBLES PARA UN PROYECTO ====================
+router.get('/disponibles/:proyectoId', authenticateToken, async (req, res) => {
   try {
     const proyectoId = parseInt(req.params.proyectoId);
+
+    // Verificar que el usuario tiene acceso al proyecto
+    const tieneAcceso = await prisma.proyecto_usuario_rol.findFirst({
+      where: {
+        proyecto_id: proyectoId,
+        usuario_id: req.user.id
+      }
+    });
+
+    if (!tieneAcceso) {
+      return res.status(403).json({
+        success: false,
+        message: 'No tienes acceso a este proyecto'
+      });
+    }
 
     const usuariosAsignados = await prisma.proyecto_usuario_rol.findMany({
       where: {
@@ -87,8 +105,8 @@ router.get('/disponibles/:proyectoId', async (req, res) => {
   }
 });
 
-
-router.get('/roles', async (req, res) => {
+// ==================== OBTENER TODOS LOS ROLES ====================
+router.get('/roles', authenticateToken, async (req, res) => {
   try {
     const roles = await prisma.roles.findMany({
       select: {

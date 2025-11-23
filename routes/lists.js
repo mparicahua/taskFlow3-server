@@ -2,9 +2,10 @@ const express = require('express');
 const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const { authenticateToken } = require('../middleware/authMiddleware');
 
 // ==================== OBTENER TODAS LAS LISTAS DE UN PROYECTO ====================
-router.get('/project/:proyectoId', async (req, res) => {
+router.get('/project/:proyectoId', authenticateToken, async (req, res) => {
   try {
     const proyectoId = parseInt(req.params.proyectoId);
 
@@ -15,6 +16,21 @@ router.get('/project/:proyectoId', async (req, res) => {
       });
     }
 
+    // Verificar que el usuario tiene acceso al proyecto
+    const tieneAcceso = await prisma.proyecto_usuario_rol.findFirst({
+      where: {
+        proyecto_id: proyectoId,
+        usuario_id: req.user.id
+      }
+    });
+
+    if (!tieneAcceso) {
+      return res.status(403).json({
+        success: false,
+        message: 'No tienes acceso a este proyecto'
+      });
+    }
+
     const listas = await prisma.listas.findMany({
       where: {
         proyecto_id: proyectoId,
@@ -22,9 +38,6 @@ router.get('/project/:proyectoId', async (req, res) => {
       },
       include: {
         tareas: {
-          where: {
-            // Podemos filtrar solo tareas no eliminadas si implementamos soft delete
-          },
           include: {
             usuario: {
               select: {
@@ -67,11 +80,10 @@ router.get('/project/:proyectoId', async (req, res) => {
 });
 
 // ==================== CREAR NUEVA LISTA ====================
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   try {
     const { proyecto_id, nombre, orden } = req.body;
 
-    // Validaciones
     if (!proyecto_id || !nombre) {
       return res.status(400).json({
         success: false,
@@ -93,7 +105,21 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Verificar que el proyecto existe
+    // Verificar acceso al proyecto
+    const tieneAcceso = await prisma.proyecto_usuario_rol.findFirst({
+      where: {
+        proyecto_id: proyecto_id,
+        usuario_id: req.user.id
+      }
+    });
+
+    if (!tieneAcceso) {
+      return res.status(403).json({
+        success: false,
+        message: 'No tienes acceso a este proyecto'
+      });
+    }
+
     const proyecto = await prisma.proyectos.findUnique({
       where: { id: proyecto_id }
     });
@@ -105,7 +131,6 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Si no se proporciona orden, obtener el siguiente
     let ordenFinal = orden !== undefined ? orden : 0;
     
     if (orden === undefined) {
@@ -116,7 +141,6 @@ router.post('/', async (req, res) => {
       ordenFinal = ultimaLista ? ultimaLista.orden + 1 : 0;
     }
 
-    // Crear la lista
     const nuevaLista = await prisma.listas.create({
       data: {
         proyecto_id,
@@ -143,7 +167,7 @@ router.post('/', async (req, res) => {
 });
 
 // ==================== ACTUALIZAR LISTA ====================
-router.put('/:id', async (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const listaId = parseInt(req.params.id);
     const { nombre, orden, activa } = req.body;
@@ -155,9 +179,9 @@ router.put('/:id', async (req, res) => {
       });
     }
 
-    // Verificar que la lista existe
     const listaExistente = await prisma.listas.findUnique({
-      where: { id: listaId }
+      where: { id: listaId },
+      include: { proyecto: true }
     });
 
     if (!listaExistente) {
@@ -167,7 +191,21 @@ router.put('/:id', async (req, res) => {
       });
     }
 
-    // Preparar datos para actualizar
+    // Verificar acceso
+    const tieneAcceso = await prisma.proyecto_usuario_rol.findFirst({
+      where: {
+        proyecto_id: listaExistente.proyecto_id,
+        usuario_id: req.user.id
+      }
+    });
+
+    if (!tieneAcceso) {
+      return res.status(403).json({
+        success: false,
+        message: 'No tienes acceso a este proyecto'
+      });
+    }
+
     const datosActualizacion = {};
     
     if (nombre !== undefined) {
@@ -188,7 +226,6 @@ router.put('/:id', async (req, res) => {
       datosActualizacion.activa = activa;
     }
 
-    // Actualizar lista
     const listaActualizada = await prisma.listas.update({
       where: { id: listaId },
       data: datosActualizacion
@@ -211,9 +248,9 @@ router.put('/:id', async (req, res) => {
 });
 
 // ==================== REORDENAR LISTAS ====================
-router.put('/reorder/bulk', async (req, res) => {
+router.put('/reorder/bulk', authenticateToken, async (req, res) => {
   try {
-    const { listas } = req.body; // Array de { id, orden }
+    const { listas } = req.body;
 
     if (!Array.isArray(listas) || listas.length === 0) {
       return res.status(400).json({
@@ -222,7 +259,6 @@ router.put('/reorder/bulk', async (req, res) => {
       });
     }
 
-    // Actualizar el orden de cada lista
     const promesas = listas.map(lista => 
       prisma.listas.update({
         where: { id: lista.id },
@@ -248,7 +284,7 @@ router.put('/reorder/bulk', async (req, res) => {
 });
 
 // ==================== ELIMINAR LISTA (SOFT DELETE) ====================
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
     const listaId = parseInt(req.params.id);
 
@@ -259,11 +295,11 @@ router.delete('/:id', async (req, res) => {
       });
     }
 
-    // Verificar que la lista existe
     const listaExistente = await prisma.listas.findUnique({
       where: { id: listaId },
       include: {
-        tareas: true
+        tareas: true,
+        proyecto: true
       }
     });
 
@@ -274,7 +310,21 @@ router.delete('/:id', async (req, res) => {
       });
     }
 
-    // Soft delete - marcar como inactiva
+    // Verificar acceso
+    const tieneAcceso = await prisma.proyecto_usuario_rol.findFirst({
+      where: {
+        proyecto_id: listaExistente.proyecto_id,
+        usuario_id: req.user.id
+      }
+    });
+
+    if (!tieneAcceso) {
+      return res.status(403).json({
+        success: false,
+        message: 'No tienes acceso a este proyecto'
+      });
+    }
+
     await prisma.listas.update({
       where: { id: listaId },
       data: { activa: false }
