@@ -51,15 +51,15 @@ async function migrarContraseñas() {
 
     let migrados = 0;
     let errores = 0;
-
+    let count =0;
     // Procesar cada usuario
     for (const usuario of usuarios) {
       try {
         // Verificar si ya está en bcrypt (los hashes bcrypt comienzan con $2b$ o $2a$)
-        if (usuario.password_hash.startsWith('$2b$') || usuario.password_hash.startsWith('$2a$')) {
-          console.log(`⏭️  ${usuario.email} - Ya está en bcrypt, saltando...`);
-          continue;
-        }
+        // if (usuario.password_hash.startsWith('$2b$') || usuario.password_hash.startsWith('$2a$')) {
+        //   console.log(`⏭️  ${usuario.email} - Ya está en bcrypt, saltando...`);
+        //   continue;
+        // }
 
         // IMPORTANTE: Aquí necesitarías saber la contraseña original
         // Como no podemos descifrar SHA-256, hay 3 opciones:
@@ -69,9 +69,12 @@ async function migrarContraseñas() {
         // const nuevoHash = await hashBcrypt(passwordOriginal);
 
         // OPCIÓN 2: Resetear contraseña temporal y forzar cambio
-        const contraseñaTemporal = `Temp${Math.random().toString(36).slice(-8)}!`;
+        //const contraseñaTemporal = `Temp${Math.random().toString(36).slice(-8)}!`;
+        //const nuevoHash = await hashBcrypt(contraseñaTemporal);
+
+        const contraseñaTemporal = `contraseña${count}`;
         const nuevoHash = await hashBcrypt(contraseñaTemporal);
-        
+        count++;
         // OPCIÓN 3: Para desarrollo, puedes usar una contraseña genérica
         // const nuevoHash = await hashBcrypt('Password123!');
 
