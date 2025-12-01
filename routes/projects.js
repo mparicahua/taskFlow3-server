@@ -4,6 +4,15 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const { authenticateToken } = require('../middleware/authMiddleware');
 
+// ✨ IMPORTAR EVENTOS DE SOCKET.IO
+const { 
+  emitProjectCreated,
+  emitProjectUpdated,
+  emitProjectDeleted,
+  emitMemberAdded,
+  emitMemberRemoved
+} = require('../socket/socketEvents');
+
 // ==================== OBTENER PROYECTOS DEL USUARIO AUTENTICADO ====================
 router.get('/user/:userId', authenticateToken, async (req, res) => {
   try {
@@ -215,6 +224,9 @@ router.post('/', authenticateToken, async (req, res) => {
       });
     });
 
+    // ✨ EMITIR EVENTO WEBSOCKET
+    emitProjectCreated(nuevoProyecto, usuario_id);
+
     res.status(201).json({
       success: true,
       message: 'Proyecto creado exitosamente',
@@ -304,6 +316,9 @@ router.put('/:id', authenticateToken, async (req, res) => {
       }
     });
 
+    // ✨ EMITIR EVENTO WEBSOCKET
+    emitProjectUpdated(proyectoActualizado, proyectoId);
+
     res.json({
       success: true,
       message: 'Proyecto actualizado exitosamente',
@@ -359,6 +374,9 @@ router.delete('/:id', authenticateToken, async (req, res) => {
         message: 'Solo el propietario puede eliminar este proyecto'
       });
     }
+
+    // ✨ EMITIR EVENTO WEBSOCKET ANTES DE ELIMINAR
+    emitProjectDeleted(proyectoId, usuario_id);
 
     await prisma.proyectos.update({
       where: { id: proyectoId },
@@ -452,6 +470,9 @@ router.post('/:id/miembros', authenticateToken, async (req, res) => {
       }
     });
 
+    // ✨ EMITIR EVENTO WEBSOCKET
+    emitMemberAdded(proyectoId, asignacion);
+
     res.json({
       success: true,
       message: 'Usuario agregado al proyecto',
@@ -497,6 +518,9 @@ router.delete('/:proyectoId/miembros/:usuarioId', authenticateToken, async (req,
         message: 'No se puede eliminar al propietario del proyecto'
       });
     }
+
+    // ✨ EMITIR EVENTO WEBSOCKET ANTES DE ELIMINAR
+    emitMemberRemoved(proyectoId, usuarioId);
 
     await prisma.proyecto_usuario_rol.delete({
       where: {
@@ -546,6 +570,19 @@ router.delete('/:proyectoId/miembros', authenticateToken, async (req, res) => {
       });
     }
 
+    // Obtener todos los miembros que se van a eliminar (para notificar)
+    const miembrosAEliminar = await prisma.proyecto_usuario_rol.findMany({
+      where: {
+        proyecto_id: proyectoId,
+        rol_id: {
+          not: rolPropietario.id
+        }
+      },
+      select: {
+        usuario_id: true
+      }
+    });
+
     const resultado = await prisma.proyecto_usuario_rol.deleteMany({
       where: {
         proyecto_id: proyectoId,
@@ -553,6 +590,11 @@ router.delete('/:proyectoId/miembros', authenticateToken, async (req, res) => {
           not: rolPropietario.id
         }
       }
+    });
+
+    // ✨ EMITIR EVENTO WEBSOCKET PARA CADA MIEMBRO ELIMINADO
+    miembrosAEliminar.forEach(miembro => {
+      emitMemberRemoved(proyectoId, miembro.usuario_id);
     });
 
     res.json({
