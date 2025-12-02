@@ -12,7 +12,7 @@ const authenticateToken = (req, res, next) => {
 
     // 2. Verificar que existe el token
     if (!token) {
-      return res.status(401).json({  // ✅ YA ESTÁ BIEN (401)
+      return res.status(401).json({
         success: false,
         message: 'Token no proporcionado',
         code: 'NO_TOKEN'
@@ -23,7 +23,7 @@ const authenticateToken = (req, res, next) => {
     const decoded = verifyAccessToken(token);
 
     if (!decoded) {
-      return res.status(401).json({  // ✅ CAMBIAR DE 403 A 401
+      return res.status(403).json({
         success: false,
         message: 'Token inválido o expirado',
         code: 'INVALID_TOKEN'
